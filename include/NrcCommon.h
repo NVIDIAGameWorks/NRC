@@ -20,7 +20,7 @@
 
 #define NRC_VERSION_MAJOR 0
 #define NRC_VERSION_MINOR 9
-#define NRC_VERSION_DATE "24 March 2023"
+#define NRC_VERSION_DATE "18 March 2024"
 
 namespace nrc
 {
@@ -258,7 +258,6 @@ struct AllocationInfo
     bool isOnSharedHeap;
     bool allowUAV;
     bool useReadbackHeap;
-    uint32_t initialState; // VkBufferUsageFlags or D3D12_RESOURCE_STATES
     const char* debugName;
 };
 

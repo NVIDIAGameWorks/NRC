@@ -169,9 +169,14 @@ public:
     NRC_DECLSPEC const Buffers* GetBuffers() const;
 
     /**
-     *  Returns pointer to the device used to initialize this NRC Context
+     *  Returns pointer to the device used to initialize this NRC Context.
      */
     NRC_DECLSPEC VkDevice GetDevice() const;
+
+    /**
+     *  Returns resource usage flags.
+     */
+    NRC_DECLSPEC VkBufferUsageFlags GetBufferUsageFlags(AllocationInfo const& allocationInfo) const;
 
 protected:
     // Prevent user code from being able to instanciate this class

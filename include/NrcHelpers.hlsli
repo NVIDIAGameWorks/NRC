@@ -447,11 +447,11 @@ NrcPathVertex NrcUnpackPathVertex(const NrcPackedPathVertex packed)
 }
 
 /** Increments the specified counter by one
-    \param[in] counterData Counter buffer to update.
+    \param[in] countersData Counter buffer to update.
     \param[in] counterID ID (index) of the counter to update.
     \return Original counter value before the increment.
 */
-uint NrcIncrementCounter(RWByteAddressBuffer counterData, NrcCounter counter)
+uint NrcIncrementCounter(NRC_RW_STRUCTURED_BUFFER(uint) countersData, NrcCounter counter)
 {
 #if 1 //< Optimized version with one InterlockedAdd per warp. This can be always on
 
@@ -460,17 +460,14 @@ uint NrcIncrementCounter(RWByteAddressBuffer counterData, NrcCounter counter)
     uint originalValue;
     if (WaveIsFirstLane())
     {
-        counterData.InterlockedAdd(((uint)counter) * 4, laneCount, originalValue);
+        InterlockedAdd(countersData[(uint)counter], laneCount, originalValue);
     }
     originalValue = WaveReadLaneFirst(originalValue); // Broadcast to all active threads
     return originalValue + laneOffset;
-
 #else //< Reference implementation with one InterlockedAdd per thread
-
     uint originalValue;
-    counterData.InterlockedAdd(counterID * 4, 1, originalValue);
+    InterlockedAdd(countersData[(uint)counter], 1, originalValue);
     return originalValue;
-
 #endif
 }
 

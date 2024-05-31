@@ -288,13 +288,12 @@ struct NrcSurfaceAttributes
  */
 struct NrcBuffers
 {
-    RWStructuredBuffer<NrcPackedQueryPathInfo> queryPathInfo;
-    RWStructuredBuffer<NrcPackedTrainingPathInfo> trainingPathInfo;
-    RWStructuredBuffer<NrcPackedPathVertex> trainingPathVertices;
-    RWStructuredBuffer<NrcRadianceParams> queryRadianceParams;
-    RWByteAddressBuffer countersData;
-#if NRC_DEBUG_BUFFERS
-    RWStructuredBuffer<NrcDebugTrainingPathInfo> debugTrainingPathInfo;
+#if !NRC_USE_CUSTOM_BUFFER_ACCESSORS
+    NRC_RW_STRUCTURED_BUFFER(NrcPackedQueryPathInfo) queryPathInfo;
+    NRC_RW_STRUCTURED_BUFFER(NrcPackedTrainingPathInfo) trainingPathInfo;
+    NRC_RW_STRUCTURED_BUFFER(NrcPackedPathVertex) trainingPathVertices;
+    NRC_RW_STRUCTURED_BUFFER(NrcRadianceParams) queryRadianceParams;
+    NRC_RW_STRUCTURED_BUFFER(uint) countersData;
 #endif
 };
 

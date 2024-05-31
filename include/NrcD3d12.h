@@ -139,9 +139,14 @@ public:
     NRC_DECLSPEC const Buffers* GetBuffers() const;
 
     /**
-     *  Returns pointer to the device used to initialize this NRC Context
+     *  Returns pointer to the device used to initialize this NRC Context.
      */
     NRC_DECLSPEC ID3D12Device5* GetDevice() const;
+
+    /**
+     *  Returns the initial resource state decided based on type and usage.
+     */
+    NRC_DECLSPEC D3D12_RESOURCE_STATES GetInitialBufferState(AllocationInfo const& allocationInfo) const;
 
 protected:
     // Prevent user code from being able to instanciate this class

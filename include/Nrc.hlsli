@@ -99,6 +99,50 @@ const NrcMode g_nrcMode = NrcMode::Disabled;
 
 #endif
 
+#if !defined(NRC_USE_CUSTOM_BUFFER_ACCESSORS)
+#define NRC_USE_CUSTOM_BUFFER_ACCESSORS 0
+#endif
+
+// Allow the integration to define its own type for a read-write structured buffer
+// E.g. if you are doing a Pirate Engine integration, the correct syntax is
+//
+//     Tharr be RW Structure Buffer <T> arrrrr
+//
+// So you would do
+//
+//     #define NRC_RW_STRUCTURED_BUFFER(T) Tharr be RW Structure Buffer <T> arrrrr
+//
+#if ENABLE_NRC && !defined(NRC_RW_STRUCTURED_BUFFER)
+#define NRC_RW_STRUCTURED_BUFFER(T) RWStructuredBuffer<T>
+#endif
+
+// Allow engine to override declaring buffers in the `NrcBuffers` struct as part
+// of the `NrcContext` in the case that buffers within structs is not supported.
+// In order to do this, the engine must first
+//
+//     #define NRC_USE_CUSTOM_BUFFER_ACCESSORS 1
+//
+// and then it must declare the following macros to provide a read-write
+// object that can be indexed with the square bracket operator
+//
+//     NRC_BUFFER_QUERY_PATH_INFO
+//     NRC_BUFFER_TRAINING_PATH_INFO
+//     NRC_BUFFER_TRAINING_PATH_VERTICES
+//     NRC_BUFFER_QUERY_RADIANCE_PARAMS
+//     NRC_BUFFER_QUERY_COUNTERS_DATA
+//
+#if ENABLE_NRC && !NRC_USE_CUSTOM_BUFFER_ACCESSORS
+#if defined(NRC_BUFFER_QUERY_PATH_INFO) || defined(NRC_BUFFER_TRAINING_PATH_INFO) || defined(NRC_BUFFER_TRAINING_PATH_VERTICES) || defined(NRC_BUFFER_QUERY_RADIANCE_PARAMS) || defined(NRC_BUFFER_QUERY_COUNTERS_DATA) || defined(NRC_BUFFER_DEBUG_TRAINING_PATH_INFO)
+#error "If you enable any NRC_BUFFER macros, then please #define NRC_USE_CUSTOM_BUFFER_ACCESSORS 1"
+#endif
+// Define the standard NRC buffer accessor macros
+#define NRC_BUFFER_QUERY_PATH_INFO context.buffers.queryPathInfo
+#define NRC_BUFFER_TRAINING_PATH_INFO context.buffers.trainingPathInfo
+#define NRC_BUFFER_TRAINING_PATH_VERTICES context.buffers.trainingPathVertices
+#define NRC_BUFFER_QUERY_RADIANCE_PARAMS context.buffers.queryRadianceParams
+#define NRC_BUFFER_QUERY_COUNTERS_DATA context.buffers.countersData
+#endif
+
 // Validate defines
 #if !defined(ENABLE_NRC)
 #error "Expected ENABLE_NRC to be defined to something"
@@ -338,7 +382,7 @@ NrcProgressState NrcUpdateOnHit(
             // Finalize the previous vertex with the radiance and throughput that the path tracer accumulated
             // during its previous iteration
             const uint previousTrainingPathVertexIndex = trainingPathVertexIndex - 1;
-            context.buffers.trainingPathVertices[previousTrainingPathVertexIndex] = NrcUpdateTrainingPathVertex(context.buffers.trainingPathVertices[previousTrainingPathVertexIndex], radiance, throughput);
+            NRC_BUFFER_TRAINING_PATH_VERTICES[previousTrainingPathVertexIndex] = NrcUpdateTrainingPathVertex(NRC_BUFFER_TRAINING_PATH_VERTICES[previousTrainingPathVertexIndex], radiance, throughput);
         }
 
         // Always update vertex counts. The pathState vertexCount variable mostly mirrors 'bounce' variable,
@@ -353,7 +397,7 @@ NrcProgressState NrcUpdateOnHit(
         radiance = 0..xxx;
 
         // Store path vertex
-        context.buffers.trainingPathVertices[trainingPathVertexIndex] = NrcInitializePackedPathVertex(
+        NRC_BUFFER_TRAINING_PATH_VERTICES[trainingPathVertexIndex] = NrcInitializePackedPathVertex(
             surfaceAttributes.roughness, surfaceAttributes.shadingNormal, surfaceAttributes.viewVector, surfaceAttributes.diffuseReflectance, surfaceAttributes.specularF0, surfaceAttributes.encodedPosition);
 
         bool terminate = (bounce == context.constants.maxPathVertices - 1) || //< Is this path at last vertex already? If yes, we can terminate.
@@ -395,7 +439,7 @@ NrcProgressState NrcUpdateOnHit(
             prefixThroughput = max(0.0f, NrcSanitizeNansInfs(prefixThroughput));
             pathState.packedPrefixThroughput = NrcEncodeLogLuvHdr(prefixThroughput);
 
-            pathState.queryBufferIndex = NrcIncrementCounter(context.buffers.countersData, NrcCounter::Queries);
+            pathState.queryBufferIndex = NrcIncrementCounter(NRC_BUFFER_QUERY_COUNTERS_DATA, NrcCounter::Queries);
 
             NrcRadianceParams params;
             params.encodedPosition = surfaceAttributes.encodedPosition;
@@ -405,7 +449,7 @@ NrcProgressState NrcUpdateOnHit(
             params.albedo = surfaceAttributes.diffuseReflectance;
             params.specular = surfaceAttributes.specularF0;
 
-            context.buffers.queryRadianceParams[pathState.queryBufferIndex] = params;
+            NRC_BUFFER_QUERY_RADIANCE_PARAMS[pathState.queryBufferIndex] = params;
 
             // Terminate now if the cache already includes direct reflected radiance.
             // Otherwise, we will terminate later, after NEE and the scatter ray has been computed.
@@ -475,7 +519,7 @@ void NrcWriteFinalPathInfo(in    NrcContext context,
             const uint vertexIndex = vertexCount - 1;
             const uint arrayIndex = NrcCalculateTrainingPathVertexIndex(
                 context.constants.trainingDimensions, context.pixelIndex, vertexIndex, context.constants.maxPathVertices);
-            context.buffers.trainingPathVertices[arrayIndex] = NrcUpdateTrainingPathVertex(context.buffers.trainingPathVertices[arrayIndex], radiance, throughput);
+            NRC_BUFFER_TRAINING_PATH_VERTICES[arrayIndex] = NrcUpdateTrainingPathVertex(NRC_BUFFER_TRAINING_PATH_VERTICES[arrayIndex], radiance, throughput);
 
             // Create self-training records for _all_ training paths, including unbiased ones.
             // Without self-training, each training vertex position within the path would matter.
@@ -485,10 +529,10 @@ void NrcWriteFinalPathInfo(in    NrcContext context,
             // this complicates the task of the network.
             if (!NrcGetFlag(pathState, nrcPathFlagHasExitedScene) && (context.constants.maxPathVertices > 1)) // && !NrcGetFlag(pathState, nrcPathFlagIsUnbiased))
             {
-                NrcPathVertex vertex = NrcUnpackPathVertex(context.buffers.trainingPathVertices[arrayIndex], radiance, throughput);
-                pathState.queryBufferIndex = NrcIncrementCounter(context.buffers.countersData, NrcCounter::Queries);
+                NrcPathVertex vertex = NrcUnpackPathVertex(NRC_BUFFER_TRAINING_PATH_VERTICES[arrayIndex], radiance, throughput);
+                pathState.queryBufferIndex = NrcIncrementCounter(NRC_BUFFER_QUERY_COUNTERS_DATA, NrcCounter::Queries);
 
-                context.buffers.queryRadianceParams[pathState.queryBufferIndex] = NrcCreateRadianceParams(vertex);
+                NRC_BUFFER_QUERY_RADIANCE_PARAMS[pathState.queryBufferIndex] = NrcCreateRadianceParams(vertex);
             }
         }
 
@@ -498,7 +542,7 @@ void NrcWriteFinalPathInfo(in    NrcContext context,
         unpackedPathInfo.queryBufferIndex = pathState.queryBufferIndex;
 
         const uint trainingPathIndex = NrcCalculateTrainingPathIndex(context.constants.trainingDimensions, context.pixelIndex);
-        context.buffers.trainingPathInfo[trainingPathIndex] = NrcPackTrainingPathInfo(unpackedPathInfo);
+        NRC_BUFFER_TRAINING_PATH_INFO[trainingPathIndex] = NrcPackTrainingPathInfo(unpackedPathInfo);
 
     }
     else
@@ -515,7 +559,7 @@ void NrcWriteFinalPathInfo(in    NrcContext context,
         packedQueryPathInfo.prefixThroughput = pathState.packedPrefixThroughput;
         packedQueryPathInfo.queryBufferIndex = pathState.queryBufferIndex;
 
-        context.buffers.queryPathInfo[queryPathIndex] = packedQueryPathInfo;
+        NRC_BUFFER_QUERY_PATH_INFO[queryPathIndex] = packedQueryPathInfo;
     }
 }
 
