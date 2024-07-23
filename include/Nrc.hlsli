@@ -17,8 +17,8 @@
 // -------------------------------------------------------------------------
 
 // NRC can be configured to be in Update or Query modes, or can be
-// entirely disabled.  You can control the behaviour using one
-// of the following mechanisms...
+// entirely disabled. You can control the behaviour using one of
+// these mechanisms:
 //
 // define ENABLE_NRC=1, but leave NRC_QUERY and NRC_UPDATE undefined
 //     Doing this enables you to control whether NRC is in Update
@@ -60,6 +60,19 @@ enum class NrcMode
 #endif
 #endif
 
+// Validate defines
+#if !defined(ENABLE_NRC)
+#error "Expected ENABLE_NRC to be defined to something"
+#endif
+#if ENABLE_NRC && !(!(defined(NRC_UPDATE)) || !(defined(NRC_QUERY))) 
+#error "ENABLE_NRC=1, so expect to have one of NRC_UPDATE or NRC_QUERY, or neither defined"
+#endif
+#if !ENABLE_NRC && (defined(NRC_UPDATE) || defined(NRC_QUERY))
+#if(NRC_UPDATE || NRC_QUERY)
+#error "ENABLE_NRC=0, so expect to have neither NRC_UPDATE or NRC_QUERY"
+#endif
+#endif
+
 #if (defined(NRC_UPDATE) || defined(NRC_QUERY))
 
 // Here, the app has kindly declared the NRC_UPDATE or NRC_QUERY macros
@@ -95,7 +108,7 @@ static NrcMode g_nrcMode = NrcMode::Disabled;
 // Disable NRC
 #define NRC_QUERY 0
 #define NRC_UPDATE 0
-const NrcMode g_nrcMode = NrcMode::Disabled;
+static const NrcMode g_nrcMode = NrcMode::Disabled;
 
 #endif
 
@@ -141,17 +154,6 @@ const NrcMode g_nrcMode = NrcMode::Disabled;
 #define NRC_BUFFER_TRAINING_PATH_VERTICES context.buffers.trainingPathVertices
 #define NRC_BUFFER_QUERY_RADIANCE_PARAMS context.buffers.queryRadianceParams
 #define NRC_BUFFER_QUERY_COUNTERS_DATA context.buffers.countersData
-#endif
-
-// Validate defines
-#if !defined(ENABLE_NRC)
-#error "Expected ENABLE_NRC to be defined to something"
-#endif
-#if ENABLE_NRC && !((!defined(NRC_UDPATE) && !defined(NRC_QUERY)) || (NRC_UPDATE ^ NRC_QUERY))
-#error "ENABLE_NRC=1, so expect to have one of NRC_UPDATE or NRC_QUERY, or neither defined"
-#endif
-#if !ENABLE_NRC && (NRC_UPDATE || NRC_QUERY)
-#error "ENABLE_NRC=0, so expect to have neither NRC_UPDATE or NRC_QUERY"
 #endif
 
 // Return true if Nrc is enabled.
@@ -420,10 +422,10 @@ NrcProgressState NrcUpdateOnHit(
             // This evaluates more complex heuristic based on the spread of the ray cone approximating the ray along the path
             createQuery = NrcEvaluateTerminationHeuristic(pathState, context.constants.terminationHeuristicThreshold);
         }
-        else
+        else 
         {
-            // This is simple termination criterion based on light bounce number
-            createQuery = (context.constants.queryVertexIndex <= vertexCount);
+            // Termination criterion enabling debug visualization of the cache by querying at vertex index zero.
+            createQuery = vertexCount == 0;
         }
 
         // Always update vertex counts. The pathState vertexCount variable mostly mirrors 'bounce' variable,

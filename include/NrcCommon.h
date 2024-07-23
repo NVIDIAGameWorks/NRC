@@ -19,8 +19,8 @@
 #endif
 
 #define NRC_VERSION_MAJOR 0
-#define NRC_VERSION_MINOR 9
-#define NRC_VERSION_DATE "18 March 2024"
+#define NRC_VERSION_MINOR 12
+#define NRC_VERSION_DATE "22 July 2024"
 
 namespace nrc
 {
@@ -228,20 +228,11 @@ struct FrameSettings
     // This will prevent NRC from terminating on mirrors - it continue to the next vertex
     bool skipDeltaVertices = false;
 
-    // Use the recommended ray-cones based termination heuristic algorithm during the
-    // normal path tracing pass.
-    // Note that the termination heuristic is always enabled for the training path tracer
-    bool enableTerminationHeuristic = false;
-
     // Knob for the termination heuristic to determine when it terminates the path.
     // The default value should give good quality.  You can decrease the value to
     // bias the algorithm to terminating earlier, trading off quality for performance.
     float terminationHeuristicThreshold = 0.01f;
     float trainingTerminationHeuristicThreshold = 0.01f;
-
-    // When the termination heuristic is disabled, you can use this value to force which
-    // path tracer vertex (bounce) the path should be terminated at.
-    uint32_t queryVertexIndex = 0;
 
     // Controls the behaviour of the optional resolve pass, allowing it to be used
     // to provide various debug visualisations.

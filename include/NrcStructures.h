@@ -228,6 +228,12 @@ enum class NrcResolveMode
     // Same as QueryIndex, but for the training pass's self-training records.
     // When things are working correctly - this should look like coloured noise.
     TrainingQueryIndex,
+
+    // Direct visualization of the cache (equivalent of querying at vertex zero).
+    // The recommended tool to assess correctness of integration, this debug view should
+    // capture features such as shadows and view-dependent specular highlights and display
+    // them in a low-detail, over-smoothed output.
+    DirectCacheView,
 };
 
 /**
@@ -253,13 +259,11 @@ struct NrcConstants
 
     nrc_uint enableTerminationHeuristic;
     nrc_uint skipDeltaVertices;
-    nrc_uint queryVertexIndex;
     float terminationHeuristicThreshold;
 
     float trainingTerminationHeuristicThreshold;
     nrc_uint pad0;
     nrc_uint pad1;
-    nrc_uint pad2;
 };
 
 struct NrcDebugTrainingPathInfo
