@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2025, NVIDIA CORPORATION.  All rights reserved.
  *
  * NVIDIA CORPORATION and its licensors retain all intellectual property
  * and proprietary rights in and to this software, related documentation
@@ -19,8 +19,8 @@
 #endif
 
 #define NRC_VERSION_MAJOR 0
-#define NRC_VERSION_MINOR 12
-#define NRC_VERSION_DATE "22 July 2024"
+#define NRC_VERSION_MINOR 13
+#define NRC_VERSION_DATE "05 December 2024"
 
 namespace nrc
 {
@@ -113,6 +113,10 @@ struct GlobalSettings
 
     // How many frames in flight might the engine have.
     uint32_t maxNumFramesInFlight = 4; // Conservative default
+
+    // Optional setting for specifying a custom directory path where the CUDA
+    // run-time dll dependencies are located
+    const char* depsDirectoryPath = nullptr;
 };
 
 /**
@@ -205,9 +209,23 @@ inline bool ContextSettings::operator==(const ContextSettings& rhs) const
 
 /**
  *  Helper which computes a suitable training resolution for the network based on
- *  the framebuffer dimensions.
+ *  the framebuffer dimensions and numer of training iterations.
+ *  You can pass 0 to numTrainingIterations and avgTrainingVerticesPerPath to use default values.
+ *  It is recommended to use this function to set the values of `ContextSettings::trainingDimensions`
+ *  by passing in the default `numTrainingIterations`.  Then if you wish to
+ * lower
+ *  the value of `numTrainingIterations`, you can call this again to calculate a resolution
+ *  for the update/training dispatch and pass that resolution in
+ * `FrameSettings::usedTrainingDimensions`
  **/
-NRC_DECLSPEC nrc_uint2 computeIdealTrainingDimensions(nrc_uint2 const& frameDimensions, float avgTrainingVerticesPerPath = 0.f);
+NRC_DECLSPEC nrc_uint2 ComputeIdealTrainingDimensions(nrc_uint2 const& frameDimensions, uint32_t numTrainingIterations, float avgTrainingVerticesPerPath = 0.f);
+
+/**
+ *  Helper for ImGui based debugging UIs.
+ *  This returns a string of resolve modes, each null terminated, in the
+ *  format expected by ImGui::Combo
+ */
+NRC_DECLSPEC char const* GetImGuiResolveModeComboString();
 
 /**
  *  Per-frame settings of the NRC Context provided by application
@@ -223,7 +241,7 @@ struct FrameSettings
     // This is in FrameSettings, but it should not be adjusted very much on a frame
     // to frame basis.  Rather it's here to allow developers to experiment easily
     // with it to find a good value that works.
-    float maxExpectedAverageRadianceValue = 1.f;
+    float maxExpectedAverageRadianceValue = 1.0f;
 
     // This will prevent NRC from terminating on mirrors - it continue to the next vertex
     bool skipDeltaVertices = false;
@@ -231,12 +249,58 @@ struct FrameSettings
     // Knob for the termination heuristic to determine when it terminates the path.
     // The default value should give good quality.  You can decrease the value to
     // bias the algorithm to terminating earlier, trading off quality for performance.
-    float terminationHeuristicThreshold = 0.01f;
-    float trainingTerminationHeuristicThreshold = 0.01f;
+    float terminationHeuristicThreshold = 0.1f;
+    // This should normally be set to the same value, and might be deprecated soon.
+    float trainingTerminationHeuristicThreshold = 0.1f;
 
     // Controls the behaviour of the optional resolve pass, allowing it to be used
     // to provide various debug visualisations.
     NrcResolveMode resolveMode = NrcResolveMode::AddQueryResultToOutput;
+
+    // Debugging aid. You can disable the training to 'freeze' the state of the cache.
+    bool trainTheCache = true;
+
+    // The training dimensions that were actually written to in the update pass.
+    // Cannot be larger than ContextSettings::trainingDimensions.
+    // The default value of (0,0) means that the whole ContextSettings::trainingDimensions was used.
+    nrc_uint2 usedTrainingDimensions = { 0, 0 };
+
+
+    // The following are temporary debugging aids. Probably not for public consumption...
+
+    // Controls what proportion of different path segments are used for training.
+    // Proportion of primary segments used to train the cache.  Should be very low.
+    float proportionPrimarySegmentsToTrainOn = 0.05f;
+    // Proportion of tertiary and beyond segments to train on
+    float proportionTertiaryPlusSegmentsToTrainOn = 1.0f;
+    // Proportion of unbiased paths that we should do self-training on
+    // (Thomas says that we shouldn't use self-training on unbiased paths)
+    float proportionUnbiasedToSelfTrain = 1.0f;
+    // Proportion of training paths that should be 'unbiased'
+    float proportionUnbiased = 0.0625f;
+    // Allows the radiance from self-training to be attenuated or completely disabled
+    // to help debugging.
+    // If there's an error in the path tracer that breaks energy conservation for example,
+    // the self training feedback can sometimes lead to the cache getting brighter
+    // and brighter.  This control can help debug such issues.
+    float selfTrainingAttenuation = 1.0f;
+    // This controls how many training iterations are performed each frame,
+    // which in turn determines the ideal number of training records that
+    // the training/update path tracing pass is expected to generate.
+    // Each training batch contains 16K training records derived from path segments
+    // in the the NRC update path tracing pass.
+    // E.g. if `numTrainingIterations` is 4, then we ideally expect the
+    // update path tracing pass to generate 64K training records.
+    // This value is taken into account in `ComputeIdealTrainingDimensions`.
+    // It is recommended that you set `ContextSettings::trainingDimensions` using
+    // the default value for `numTrainingIterations`, and size your buffers accordingly.
+    // Then if you are running at a high frame rate, and you wish to reduce how
+    // much training is done per frame, you can reduce this and call
+    // `ComputeIdealTrainingDimensions` to set a lower resolution in
+    // `FrameSettings::usedTrainingDimensions` (and your training/update dispatch).
+    uint32_t numTrainingIterations = 4;
+    // TODO: Document this
+    float learningRate = 1e-2f;
 };
 
 /**
@@ -322,5 +386,10 @@ struct BuffersAllocationInfo
 
     AllocationInfo allocationInfo[(int)BufferIdx::Count];
 };
+
+[[deprecated("Use ComputeIdealTrainingDimensions instead")]] inline nrc_uint2 computeIdealTrainingDimensions(nrc_uint2 const& frameDimensions, float avgTrainingVerticesPerPath = 0.f)
+{
+    return ComputeIdealTrainingDimensions(frameDimensions, 0, avgTrainingVerticesPerPath);
+}
 
 } // namespace nrc

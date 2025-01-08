@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2025, NVIDIA CORPORATION.  All rights reserved.
  *
  * NVIDIA CORPORATION and its licensors retain all intellectual property
  * and proprietary rights in and to this software, related documentation
@@ -61,15 +61,14 @@ typedef uint3 nrc_uint3;
 typedef float2 nrc_float2;
 typedef float3 nrc_float3;
 typedef float4 nrc_float4;
+#endif
 
 #if NRC_PACK_PATH_16BITS
 typedef uint16_t NrcPackableUint;
-typedef float16_t NrcPackableFloat;
+typedef nrc_float16_t NrcPackableFloat;
 #else
 typedef uint32_t NrcPackableUint;
 typedef float NrcPackableFloat;
-#endif
-
 #endif
 
 #if TCNN_USES_FIXED_POINT_POSITIONS
@@ -108,18 +107,16 @@ struct NrcRadianceParams
  */
 struct NrcTrainingPathInfo
 {
-    uint32_t vertexCount;
+    NrcPackableUint packedData;
     uint32_t queryBufferIndex;
-    bool hasExitedScene;
 };
 
 /**
- *  Packed version of NrcTrainingPathInfo
+ *  Packed version of NrcTrainingPathInfo (right now it looks just the same)
  */
 struct NrcPackedTrainingPathInfo
 {
-    // TODO: We can almost certainly get this down to a single uint32_t now
-    uint32_t flagsAndIndices;
+    NrcPackableUint packedData;
     uint32_t queryBufferIndex;
 };
 
@@ -183,7 +180,7 @@ enum class NrcDebugPathTerminationReason
     CreateQueryAfterDirectLighting,
     RussianRoulette,
     BRDFAbsorption,
-    COUNT
+    Count
 };
 
 enum class NrcResolveMode
@@ -212,14 +209,25 @@ enum class NrcResolveMode
     // to give a result more like you would see with accumulation.
     TrainingBounceHeatMapSmoothed,
 
-    // A debug mode that shows the training radiance for the primary ray
-    // segment.  This should look like a low resolution version of the path
-    // traced result, and it will be noisy.
+    // A debug mode that shows the reconstructed radiance for the primary
+    // ray segment.  This should look like a low resolution version of the
+    // path traced result, and it will be noisy.
+    // The radiance shown here will include 'self training', where cache
+    // lookups are injected at the tails of many of the paths.
+    // When debugging cache issues, it can sometimes be useful to disable
+    // this self training using nrc::FrameSettings::selfTrainingAttenuation
     PrimaryVertexTrainingRadiance,
 
     // The same as PrimaryVertexTrainingRadiance, but smoothed over time
     // to give a result more like you would see with accumulation
     PrimaryVertexTrainingRadianceSmoothed,
+
+    // As PrimaryVertexTrainingRadiance, but for the secondary ray segment
+    SecondaryVertexTrainingRadiance,
+
+    // The same as SecondaryVertexTrainingRadiance, but smoothed over time
+    // to give a result more like you would see with accumulation
+    SecondaryVertexTrainingRadianceSmoothed,
 
     // A debug mode that shows a random colour that's a hash of the query index.
     // When things are working correctly - this should look like coloured noise.
@@ -260,45 +268,18 @@ struct NrcConstants
     nrc_uint enableTerminationHeuristic;
     nrc_uint skipDeltaVertices;
     float terminationHeuristicThreshold;
-
     float trainingTerminationHeuristicThreshold;
+
+    float proportionUnbiased;
     nrc_uint pad0;
     nrc_uint pad1;
+    nrc_uint pad2;
 };
 
 struct NrcDebugTrainingPathInfo
 {
-    nrc_float3 primaryRadiance;
+    nrc_float3 debugRadiance;
     nrc_float3 accumulation;
-};
-
-#ifndef __cplusplus
-/**
- *  Attributes of the surface hit by the ray, needed to evaluate NRC query and training data
- */
-struct NrcSurfaceAttributes
-{
-    NrcEncodedPosition encodedPosition; // Use NrcEncodePosition
-    float roughness;
-    nrc_float3 specularF0;
-    nrc_float3 diffuseReflectance;
-    nrc_float3 shadingNormal;
-    nrc_float3 viewVector;
-    bool isDeltaLobe;
-};
-
-/**
- *  Holds common parameters needed by NRC functions; called from the path tracer
- */
-struct NrcBuffers
-{
-#if !NRC_USE_CUSTOM_BUFFER_ACCESSORS
-    NRC_RW_STRUCTURED_BUFFER(NrcPackedQueryPathInfo) queryPathInfo;
-    NRC_RW_STRUCTURED_BUFFER(NrcPackedTrainingPathInfo) trainingPathInfo;
-    NRC_RW_STRUCTURED_BUFFER(NrcPackedPathVertex) trainingPathVertices;
-    NRC_RW_STRUCTURED_BUFFER(NrcRadianceParams) queryRadianceParams;
-    NRC_RW_STRUCTURED_BUFFER(uint) countersData;
-#endif
 };
 
 /**
@@ -336,6 +317,35 @@ struct NrcPathState
 
     NrcPackableUint packedData; ///< The number of vertices processed, flags and termination reason
     NrcPackableFloat brdfPdf;
+};
+
+#ifndef __cplusplus
+/**
+ *  Attributes of the surface hit by the ray, needed to evaluate NRC query and training data
+ */
+struct NrcSurfaceAttributes
+{
+    NrcEncodedPosition encodedPosition; // Use NrcEncodePosition
+    float roughness;
+    nrc_float3 specularF0;
+    nrc_float3 diffuseReflectance;
+    nrc_float3 shadingNormal;
+    nrc_float3 viewVector;
+    bool isDeltaLobe;
+};
+
+/**
+ *  Holds common parameters needed by NRC functions; called from the path tracer
+ */
+struct NrcBuffers
+{
+#if !NRC_USE_CUSTOM_BUFFER_ACCESSORS
+    NRC_RW_STRUCTURED_BUFFER(NrcPackedQueryPathInfo) queryPathInfo;
+    NRC_RW_STRUCTURED_BUFFER(NrcPackedTrainingPathInfo) trainingPathInfo;
+    NRC_RW_STRUCTURED_BUFFER(NrcPackedPathVertex) trainingPathVertices;
+    NRC_RW_STRUCTURED_BUFFER(NrcRadianceParams) queryRadianceParams;
+    NRC_RW_STRUCTURED_BUFFER(uint) countersData;
+#endif
 };
 
 /**

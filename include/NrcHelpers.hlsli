@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2025, NVIDIA CORPORATION.  All rights reserved.
  *
  * NVIDIA CORPORATION and its licensors retain all intellectual property
  * and proprietary rights in and to this software, related documentation
@@ -12,6 +12,8 @@
 #define __NRC_HELPERS_HLSL__
 
 #include "NrcStructures.h"
+
+#ifndef __cplusplus
 
 /**
  *   This file contains utility functions used by NRC shader code, mostly related to packing/unpacking
@@ -571,7 +573,7 @@ NrcPackedTrainingPathInfo NrcPackTrainingPathInfo(const NrcTrainingPathInfo path
 {
     NrcPackedTrainingPathInfo packedPathInfo = (NrcPackedTrainingPathInfo)0;
 
-    packedPathInfo.flagsAndIndices = int((pathInfo.vertexCount & 0xFF) << 0) | int(((pathInfo.hasExitedScene ? 1 : 0) & 0xFF) << 16);
+    packedPathInfo.packedData = pathInfo.packedData;
     packedPathInfo.queryBufferIndex = pathInfo.queryBufferIndex;
 
     return packedPathInfo;
@@ -585,8 +587,7 @@ NrcTrainingPathInfo NrcUnpackTrainingPathInfo(const NrcPackedTrainingPathInfo pa
 {
     NrcTrainingPathInfo pathInfo = (NrcTrainingPathInfo)0;
 
-    pathInfo.vertexCount = int((packedPathInfo.flagsAndIndices >> 0) & 0xFF);
-    pathInfo.hasExitedScene = ((((packedPathInfo.flagsAndIndices >> 16) & 0xFF) & 1) != 0);
+    pathInfo.packedData = packedPathInfo.packedData;
     pathInfo.queryBufferIndex = packedPathInfo.queryBufferIndex;
 
     return pathInfo;
@@ -620,4 +621,5 @@ float3 NrcUnpackQueryRadiance(const NrcConstants nrcConstants, float3 packedQuer
     return packedQueryRadiance * nrcConstants.radianceUnpackMultiplier;
 }
 
+#endif
 #endif // __NRC_HELPERS_HLSL__

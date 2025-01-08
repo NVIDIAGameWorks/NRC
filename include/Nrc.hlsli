@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2025, NVIDIA CORPORATION.  All rights reserved.
  *
  * NVIDIA CORPORATION and its licensors retain all intellectual property
  * and proprietary rights in and to this software, related documentation
@@ -125,7 +125,7 @@ static const NrcMode g_nrcMode = NrcMode::Disabled;
 //
 //     #define NRC_RW_STRUCTURED_BUFFER(T) Tharr be RW Structure Buffer <T> arrrrr
 //
-#if ENABLE_NRC && !defined(NRC_RW_STRUCTURED_BUFFER)
+#if !defined(NRC_RW_STRUCTURED_BUFFER)
 #define NRC_RW_STRUCTURED_BUFFER(T) RWStructuredBuffer<T>
 #endif
 
@@ -156,6 +156,10 @@ static const NrcMode g_nrcMode = NrcMode::Disabled;
 #define NRC_BUFFER_QUERY_COUNTERS_DATA context.buffers.countersData
 #endif
 
+#include "NrcHelpers.hlsli"
+
+#ifndef __cplusplus
+
 // Return true if Nrc is enabled.
 // In nearly all cases, this will be compile-time evaluation.
 bool NrcIsEnabled()
@@ -176,8 +180,6 @@ bool NrcIsQueryMode()
 {
     return g_nrcMode == NrcMode::Query;
 }
-
-#include "NrcHelpers.hlsli"
 
 enum class NrcProgressState
 {
@@ -202,49 +204,50 @@ bool NrcEvaluateTerminationHeuristic(const NrcPathState pathState, float thresho
 
 // Layout of pathState.packedData
 //   +-----------+-------------+--------------+
-//   | 15     13 | 12        8 | 7          0 |
+//   | 15     12 | 11        7 | 6          0 |
 //   +-----------+-------------+--------------+
 //   |   Flags   | Termination |    Vertex    |
 //   |           |   Reason    |     Count    |
 //   +-----------+-------------+--------------+
-static const NrcPackableUint nrcTerminationReasonShift          = 8;
-static const NrcPackableUint nrcPathFlagsShift                  = 13;
+static const NrcPackableUint nrcTerminationReasonShift          = 7;
+static const NrcPackableUint nrcPathFlagsShift                  = 12;
 static const NrcPackableUint nrcPathFlagHasExitedScene          = (NrcPackableUint) (1U << (nrcPathFlagsShift + 0U)); //< Training paths that exited the scene should not be "Q-learned"
 static const NrcPackableUint nrcPathFlagIsUnbiased              = (NrcPackableUint) (1U << (nrcPathFlagsShift + 1U)); //< Some of the training paths are marked as "unbiased" to be extended through the entire scene
 static const NrcPackableUint nrcPathFlagPreviousHitWasDeltaLobe = (NrcPackableUint) (1U << (nrcPathFlagsShift + 2U));
+static const NrcPackableUint nrcPathFlagHeuristicReset          = (NrcPackableUint) (1U << (nrcPathFlagsShift + 3U));
 static const NrcPackableUint nrcVertexCountMask                 = (NrcPackableUint) ((1U << nrcTerminationReasonShift) - 1);
 static const NrcPackableUint nrcTerminationReasonMask           = (NrcPackableUint) (((1U << nrcPathFlagsShift) - 1U) & ~nrcVertexCountMask);
 
-void NrcSetFlag(inout NrcPathState pathState, in NrcPackableUint flag)
+void NrcSetFlag(inout NrcPackableUint packedData, in NrcPackableUint flag)
 {
-    pathState.packedData |= flag;
+    packedData |= flag;
 }
 
-void NrcClearFlag(inout NrcPathState pathState, in NrcPackableUint flag)
+void NrcClearFlag(inout NrcPackableUint packedData, in NrcPackableUint flag)
 {
-    pathState.packedData &= ~flag;
+    packedData &= ~flag;
 }
 
-void NrcSetFlag(inout NrcPathState pathState, in NrcPackableUint flag, in bool value)
+void NrcSetFlag(inout NrcPackableUint packedData, in NrcPackableUint flag, in bool value)
 {
-    pathState.packedData &= ~flag;
-    pathState.packedData |= value ? flag : 0;
+    packedData &= ~flag;
+    packedData |= value ? flag : 0;
 }
 
-bool NrcGetFlag(in NrcPathState pathState, in NrcPackableUint flag)
+bool NrcGetFlag(in NrcPackableUint packedData, in NrcPackableUint flag)
 {
-    return (pathState.packedData & flag) ? true : false;
+    return (packedData & flag) ? true : false;
 }
 
-uint NrcGetVertexCount(in NrcPathState pathState)
+uint NrcGetVertexCount(in NrcPackableUint packedData)
 {
-    return (pathState.packedData & nrcVertexCountMask);
+    return (packedData & nrcVertexCountMask);
 }
 
-void NrcSetVertexCount(inout NrcPathState pathState, uint vertexCount)
+void NrcSetVertexCount(inout NrcPackableUint packedData, uint vertexCount)
 {
-    pathState.packedData &= ~nrcVertexCountMask;
-    pathState.packedData |= (NrcPackableUint) vertexCount;
+    packedData &= ~nrcVertexCountMask;
+    packedData |= (NrcPackableUint) vertexCount;
 }
 
 // -------------------------------------------------------------------------
@@ -266,10 +269,9 @@ NrcDebugPathTerminationReason NrcGetDebugPathTerminationReason(in NrcPathState p
 }
 
 /** Creates a new NrcContext
-
-    \param[in]    constants. NrcConstants passed from the Nrc SDK library.
-    \param[in]    buffers. NrcBuffers struct that should be filled in by the app.
-    \param[in]    pixelIndex. The pixel coordinate
+    \param[in] constants. NrcConstants passed from the Nrc SDK library.
+    \param[in] buffers. NrcBuffers struct that should be filled in by the app.
+    \param[in] pixelIndex. The pixel coordinate.
 */
 NrcContext NrcCreateContext(in NrcConstants constants, in NrcBuffers buffers, in uint2 pixelIndex)
 {
@@ -284,10 +286,10 @@ NrcContext NrcCreateContext(in NrcConstants constants, in NrcBuffers buffers, in
 
 /** Creates a fresh NrcPathState for a new path.
     Call this before entering the bounce loop.
-
-    \param[in]    rand0to1. A random number between 0 and 1.
+    \param[in] constants. The NRC constants.
+    \param[in] rand0to1. A random number between 0 and 1.
 */
-NrcPathState NrcCreatePathState(float rand0to1)
+NrcPathState NrcCreatePathState(in NrcConstants constants, float rand0to1)
 {
     NrcPathState pathState = (NrcPathState) 0;
     pathState.queryBufferIndex = 0xFFFFFFFF;
@@ -297,14 +299,13 @@ NrcPathState NrcCreatePathState(float rand0to1)
     pathState.packedData = 0;
 
     // Get a pseudorandom selection of "unbiased" training paths. Unbiased means that the paths are traced to their full length.
-    const bool isUnbiased = NrcIsUpdateMode() && (rand0to1 < (1.f / 16.f));
-    NrcSetFlag(pathState, nrcPathFlagIsUnbiased, isUnbiased);
+    const bool isUnbiased = NrcIsUpdateMode() && (rand0to1 < constants.proportionUnbiased);
+    NrcSetFlag(pathState.packedData, nrcPathFlagIsUnbiased, isUnbiased);
 
     return pathState;
 }
 
 /** Sets the sample index of the path that we're going to trace.
-
     \param[inout] context
     \param[in]    sampleIndex. Optional sample index when rendering multiple paths per pixel
 */
@@ -321,7 +322,7 @@ void NrcSetSampleIndex(inout NrcContext context, in uint sampleIndex)
 */
 bool NrcCanUseRussianRoulette(in NrcPathState pathState)
 {
-    return !NrcGetFlag(pathState, nrcPathFlagIsUnbiased);
+    return !NrcGetFlag(pathState.packedData, nrcPathFlagIsUnbiased);
 }
 
 /** This should be called when the path traced ray segment is a 'hit'.
@@ -332,7 +333,8 @@ bool NrcCanUseRussianRoulette(in NrcPathState pathState)
     \param[in] context. NrcContext.
     \param[inout] pathState. NrcPathState to be updated.
     \param[in] surfaceAttributes. Information about the surface that was hit.
-    \param[in] hitDistance. Distance from the previous path vertex.
+    \param[in] hitDistance. Distance from the previous hit, or the path length so far if this is
+                            the first call with bounce > 0 when using Primary Surface Replacement.
     \param[in] bounce. The index of this bounce (the primary hit is bounce 0)
     \param[inout] throughput. The path tracer's accumulated throughput.
     \param[inout] radiance. The path tracer's accumulated radiance.
@@ -356,16 +358,16 @@ NrcProgressState NrcUpdateOnHit(
     // The heuristic prevents querying the NRC before the signal has been sufficiently blurred by the path spread.
     // This needs to be calculated even when heuristics is disabled, because it's still used for training paths
     const float cosGamma = abs(dot(surfaceAttributes.viewVector, surfaceAttributes.shadingNormal));
-    if (bounce == 0)
+    if (pathState.primarySpreadRadius == 0.f)
     {
         const float kOneOverFourPI = 0.079577471545947667884f; // 1/4pi
         pathState.primarySpreadRadius = (NrcPackableFloat) (hitDistance / sqrt(cosGamma * kOneOverFourPI));
     }
-    else if (!NrcGetFlag(pathState, nrcPathFlagPreviousHitWasDeltaLobe))
+    else if (!NrcGetFlag(pathState.packedData, nrcPathFlagPreviousHitWasDeltaLobe))
     {
         pathState.cumulSpreadRadius += (NrcPackableFloat) (hitDistance / sqrt(cosGamma * pathState.brdfPdf /* The BRDF PDF of the previous hit */));
     }
-    NrcSetFlag(pathState, nrcPathFlagPreviousHitWasDeltaLobe, surfaceAttributes.isDeltaLobe);
+    NrcSetFlag(pathState.packedData, nrcPathFlagPreviousHitWasDeltaLobe, surfaceAttributes.isDeltaLobe);
 
     // Determine if we want to skip querying NRC at this bounce (e.g., we want skip mirrors)
     const bool skipVertex = (context.constants.skipDeltaVertices || context.constants.enableTerminationHeuristic) && surfaceAttributes.isDeltaLobe;
@@ -374,7 +376,7 @@ NrcProgressState NrcUpdateOnHit(
         return NrcProgressState::Continue;
     }
     
-    uint vertexCount = NrcGetVertexCount(pathState);
+    uint vertexCount = NrcGetVertexCount(pathState.packedData);
     if (NrcIsUpdateMode())
     {
         // Write training path vertex information
@@ -391,7 +393,7 @@ NrcProgressState NrcUpdateOnHit(
         // but it does not count specular vertices if these were marked to be skipped.
         // This is needed to ensure that a surface scene in a mirror is handled similarly to surfaces seen directly.
         vertexCount++;
-        NrcSetVertexCount(pathState, vertexCount);
+        NrcSetVertexCount(pathState.packedData, vertexCount);
 
         // Reset the path tracer's throughput and radiance for the next
         // path segment.
@@ -402,8 +404,18 @@ NrcProgressState NrcUpdateOnHit(
         NRC_BUFFER_TRAINING_PATH_VERTICES[trainingPathVertexIndex] = NrcInitializePackedPathVertex(
             surfaceAttributes.roughness, surfaceAttributes.shadingNormal, surfaceAttributes.viewVector, surfaceAttributes.diffuseReflectance, surfaceAttributes.specularF0, surfaceAttributes.encodedPosition);
 
-        bool terminate = (bounce == context.constants.maxPathVertices - 1) || //< Is this path at last vertex already? If yes, we can terminate.
-                (!NrcGetFlag(pathState, nrcPathFlagIsUnbiased) && NrcEvaluateTerminationHeuristic(pathState, context.constants.trainingTerminationHeuristicThreshold));
+        bool terminate = (bounce == context.constants.maxPathVertices - 1); //< Is this path at last vertex already? If yes, we can terminate.
+        if(!NrcGetFlag(pathState.packedData, nrcPathFlagIsUnbiased))
+        {
+            if(NrcEvaluateTerminationHeuristic(pathState, context.constants.trainingTerminationHeuristicThreshold))
+            {
+                // We should run the path to its normal termination, then reset the spread radius and run again
+                // until we hit the termination criteria a second time
+                terminate |= NrcGetFlag(pathState.packedData, nrcPathFlagHeuristicReset);
+                NrcSetFlag(pathState.packedData, nrcPathFlagHeuristicReset);
+                pathState.cumulSpreadRadius = 0.f;
+            }
+        }
 
         if( terminate )
         {
@@ -432,7 +444,7 @@ NrcProgressState NrcUpdateOnHit(
         // but it does not count specular vertices if these were marked to be skipped.
         // This is needed to ensure that a surface scene in a mirror is handled similarly to surfaces seen directly.
         vertexCount++;
-        NrcSetVertexCount(pathState, vertexCount);
+        NrcSetVertexCount(pathState.packedData, vertexCount);
 
         // Create query record
         if (createQuery)
@@ -477,7 +489,7 @@ NrcProgressState NrcUpdateOnHit(
 void NrcUpdateOnMiss(inout NrcPathState pathState)
 {
     NrcSetDebugPathTerminationReason(pathState, NrcDebugPathTerminationReason::PathMissExit);
-    NrcSetFlag(pathState, nrcPathFlagHasExitedScene);
+    NrcSetFlag(pathState.packedData, nrcPathFlagHasExitedScene);
 }
 
 /** Inform NRC of the PDF of the BRDF.
@@ -514,7 +526,7 @@ void NrcWriteFinalPathInfo(in    NrcContext context,
     {
         // Training pass
 
-        uint vertexCount = NrcGetVertexCount(pathState);
+        uint vertexCount = NrcGetVertexCount(pathState.packedData);
         // Only create cache query for self-training if the last vertex throughput is non-zero
         if (vertexCount > 0)
         {
@@ -529,7 +541,7 @@ void NrcWriteFinalPathInfo(in    NrcContext context,
             // are less following vertices, than those closer to the head.
             // An alternative would be to condition the network prediction on the vertex index, but
             // this complicates the task of the network.
-            if (!NrcGetFlag(pathState, nrcPathFlagHasExitedScene) && (context.constants.maxPathVertices > 1)) // && !NrcGetFlag(pathState, nrcPathFlagIsUnbiased))
+            if (!NrcGetFlag(pathState.packedData, nrcPathFlagHasExitedScene) && (context.constants.maxPathVertices > 1)) // && !NrcGetFlag(pathState.packedData, nrcPathFlagIsUnbiased))
             {
                 NrcPathVertex vertex = NrcUnpackPathVertex(NRC_BUFFER_TRAINING_PATH_VERTICES[arrayIndex], radiance, throughput);
                 pathState.queryBufferIndex = NrcIncrementCounter(NRC_BUFFER_QUERY_COUNTERS_DATA, NrcCounter::Queries);
@@ -539,8 +551,7 @@ void NrcWriteFinalPathInfo(in    NrcContext context,
         }
 
         NrcTrainingPathInfo unpackedPathInfo = (NrcTrainingPathInfo) 0;
-        unpackedPathInfo.vertexCount = vertexCount;
-        unpackedPathInfo.hasExitedScene = NrcGetFlag(pathState, nrcPathFlagHasExitedScene);
+        unpackedPathInfo.packedData = pathState.packedData;
         unpackedPathInfo.queryBufferIndex = pathState.queryBufferIndex;
 
         const uint trainingPathIndex = NrcCalculateTrainingPathIndex(context.constants.trainingDimensions, context.pixelIndex);
@@ -581,7 +592,7 @@ NrcContext NrcCreateContext(NrcConstants, NrcBuffers, uint2)
     return context;
 }
 
-NrcPathState NrcCreatePathState(float)
+NrcPathState NrcCreatePathState(NrcConstants, float)
 {
     NrcPathState pathState;
     return pathState;
@@ -608,6 +619,8 @@ void NrcSetBrdfPdf(NrcPathState, float)
 
 void NrcWriteFinalPathInfo(NrcContext, NrcPathState, float3, float3)
 {}
+
+#endif // !__cplusplus
 
 #endif // !ENABLE_NRC
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2024, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2019-2025, NVIDIA CORPORATION.  All rights reserved.
  *
  * NVIDIA CORPORATION and its licensors retain all intellectual property
  * and proprietary rights in and to this software, related documentation
@@ -112,7 +112,7 @@ public:
      *  You should pass Buffers if you have opted to manage the buffer allocations yourself
      *  (by setting enableGPUMemoryAllocation in the GlobalSettings to false)
      */
-    NRC_DECLSPEC Status Configure(const ContextSettings& contextSettings, const Buffers* buffers = nullptr);
+    NRC_DECLSPEC Status Configure(const ContextSettings& contextSettings, const Buffers* buffers = nullptr, const char* networkConfigFilename = nullptr);
 
     /**
      *  Populate NrcConstants (shader constants structure).
