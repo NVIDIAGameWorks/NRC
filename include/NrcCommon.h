@@ -20,7 +20,7 @@
 
 #define NRC_VERSION_MAJOR 0
 #define NRC_VERSION_MINOR 13
-#define NRC_VERSION_DATE "05 December 2024"
+#define NRC_VERSION_DATE "22 January 2025"
 
 namespace nrc
 {
@@ -266,24 +266,28 @@ struct FrameSettings
     nrc_uint2 usedTrainingDimensions = { 0, 0 };
 
 
-    // The following are temporary debugging aids. Probably not for public consumption...
+    // Development debugging aids.
 
     // Controls what proportion of different path segments are used for training.
     // Proportion of primary segments used to train the cache.  Should be very low.
     float proportionPrimarySegmentsToTrainOn = 0.05f;
+
     // Proportion of tertiary and beyond segments to train on
     float proportionTertiaryPlusSegmentsToTrainOn = 1.0f;
+
     // Proportion of unbiased paths that we should do self-training on
-    // (Thomas says that we shouldn't use self-training on unbiased paths)
     float proportionUnbiasedToSelfTrain = 1.0f;
+
     // Proportion of training paths that should be 'unbiased'
     float proportionUnbiased = 0.0625f;
+
     // Allows the radiance from self-training to be attenuated or completely disabled
     // to help debugging.
     // If there's an error in the path tracer that breaks energy conservation for example,
     // the self training feedback can sometimes lead to the cache getting brighter
-    // and brighter.  This control can help debug such issues.
+    // and brighter. This control can help debug such issues.
     float selfTrainingAttenuation = 1.0f;
+
     // This controls how many training iterations are performed each frame,
     // which in turn determines the ideal number of training records that
     // the training/update path tracing pass is expected to generate.
@@ -299,7 +303,12 @@ struct FrameSettings
     // `ComputeIdealTrainingDimensions` to set a lower resolution in
     // `FrameSettings::usedTrainingDimensions` (and your training/update dispatch).
     uint32_t numTrainingIterations = 4;
-    // TODO: Document this
+
+    // Tuning parameter which defines the step size taken in the gradinet descent
+    // direction (determined from the gradient of the loss function).
+    // The learning rate comes with a trade-off between the speed of convergence (low value)
+    // and overshooting (oscillating) when using a high value.
+    // For the Adam optimizer the recommended range is [0.0001 and 0.01].
     float learningRate = 1e-2f;
 };
 
